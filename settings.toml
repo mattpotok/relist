@@ -1,0 +1,8 @@
+[craigslist]
+
+    [craigslist.credentials]
+    email = "email"
+    password = "password"
+
+    [craigslist.postings]
+    ids = ["0123456789", "1234567890"]
