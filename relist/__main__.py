@@ -1,5 +1,3 @@
-# Rename this program as 'relist'
-
 import logging.config
 import sys
 from pathlib import Path
@@ -8,11 +6,12 @@ import tomlkit
 from fake_useragent import UserAgent
 from selenium import webdriver
 
-from relist.sites import craigslist
+from relist.sites import craigslist, facebook
 
 CONFIG_PATH = Path.home() / ".config/relist/settings.toml"
 LOG_PATH = Path.home() / ".local/share/relist/relist.log"
 
+# FIXME create loggers for each individual
 LOGGING_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -29,28 +28,25 @@ LOGGING_CONFIG = {
             "formatter": "default",
             "level": "DEBUG",
         },
-        "stdout": {
-            "class": "logging.StreamHandler",
-            "formatter": "default",
-            "level": "INFO",
-        },
     },
     "loggers": {
         "": {
-            "handlers": ["file", "stdout"],
+            "handlers": [],
             "level": "DEBUG",
         },
         "craigslist": {
-            "handlers": ["file", "stdout"],
-            "level": "DEBUG",
+            "handlers": ["file"],
+            "level": "WARNING",
+        },
+        "facebook": {
+            "handlers": ["file"],
+            "level": "INFO",
         },
     },
 }
 
 
 def main():
-    # TODO make this headless
-    # TODO add a fake user agent
     # TODO make the browser choice configurable
     log_dir_path = LOG_PATH.parent
     log_dir_path.mkdir(parents=True, exist_ok=True)
@@ -70,18 +66,17 @@ def main():
         logging.exception("Unknown exception occured")
         sys.exit(1)
 
-    # TODO make this configurable
-    # TODO allow for options here
     options = webdriver.FirefoxOptions()
     options.headless = True
     options.add_argument(f"user-agent={UserAgent().random}")
-    browser = webdriver.Firefox()
+    browser = webdriver.Firefox(options=options)
 
     if craigslist_config := config.get("craigslist"):
         craigslist.relist(browser, craigslist_config)
+        print()
 
     if facebook_config := config.get("facebook"):
-        pass
+        facebook.relist(browser, facebook_config)
 
     browser.close()
 

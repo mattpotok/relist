@@ -1,91 +1,136 @@
 import logging
+from pathlib import Path
 
+from relist.common import Result, reprint
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from tabulate import tabulate
+
+logger = logging.getLogger(Path(__file__).stem)
 
 
 class Listing:
-    def __init__(self, id):
-        self._id = id
+    def __init__(self, title):
+        self._title = title
 
-    def renew(self, browser):
-        logging.debug(f"Relisting Facebook listing '{self._id}'...")
+    def relist(self, browser):
+        title = self._title
 
         try:
-            browser.get(f"https://www.facebook.com/marketplace/item/{self._id}")
-            if browser.current_url.endswith("unavailable_product=1"):
-                logging.error(f"Unable to find Facebook listing '{id}'")
-                return False
+            # Navigate to listing
+            browser.get(
+                f"https://www.facebook.com/marketplace/you/selling?title_search={title}"
+            )
 
-            renew_btn = browser.find_element(By.XPATH, "//span[text()='Renew listing']")
-            renew_btn.click()
-        except NoSuchElementException:
-            logging.warning(f"Facebook listing '{self._id}' cannot be renewed")
-            return False
-        except Exception:
-            logging.exception(f"Unable to relist Facbook listing '{self._id}'")
-            return False
+            WebDriverWait(browser, 1000).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH, f"//span[text()='{title}']")
+                )
+            )
 
-        logging.info(f"Relisted Facebook listing '{self._id}'")
-        return True
+            # Validate listing exists
+            try:
+                browser.find_element(
+                    By.XPATH, '//span[text()="We didn\'t find anything"]'
+                )
+                logger.warning(f"Invalid Facebook listing '{title}'")
+                return Result.INVALID
+            except NoSuchElementException:
+                pass
+
+            # TODO if multiple listing exist, then iterate over each one of them
+            # Relist listing
+            try:
+                button = browser.find_element(
+                    By.XPATH, "//div[contains(@aria-label, 'Delete & Relist')]"
+                )
+                button.click()
+                logger.info(f"Relisted Facebook listing '{title}'")
+                return Result.RELISTED
+            except NoSuchElementException:
+                pass
+
+            # Renew listing
+            try:
+                button = browser.find_element(
+                    By.XPATH, "//div[contains(@aria-label, 'Renew listing')]"
+                )
+                button.click()
+                logger.info(f"Renewed Facebook listing '{title}'")
+                return Result.RENEWED
+            except NoSuchElementException:
+                logger.info(f"Facebook listing '{title}' is currently active")
+                return Result.ACTIVE
+
+        except:
+            logger.exception(f"Exception relisting Facebook listing '{title}'")
+            return Result.EXCEPTION
 
     @property
-    def id(self):
-        return self._id
+    def title(self):
+        return self._title
 
 
 def _login(browser, credentials):
+    reprint("Logging into Facebook - executing...")
+
     email = credentials["email"]
     password = credentials["password"]
-    logging.debug("Logging into Facebook...")
 
     try:
         browser.get("https://facebook.com")
         browser.find_element(By.ID, "email").send_keys(email)
         browser.find_element(By.ID, "pass").send_keys(password)
         browser.find_element(By.NAME, "login").click()
-    except Exception:
-        logging.exception("Unable to log into Facebook")
+
+        # TODO wait until some element is visible
+    except:
+        logger.exception("Unable to log into Facebook")
         return False
 
-    logging.info("Logged into Facebook")
+    reprint("Logging into Facebook - done", overwrite=True)
+    logger.info("Logged into Facebook")
+
     return True
 
 
 def _logout(browser):
-    logging.debug("Logging out of Facebook...")
+    reprint("Logging out of Facebook - executing...")
 
     try:
         browser.get("https://www.facebook.com/marketplace/you/selling")
+        # FIXME may need to add a wait here
         profile_btn = browser.find_element(
             By.XPATH, "//*[name()='svg' and @aria-label='Your profile']"
         )
         profile_btn.click()
+
+        WebDriverWait(browser, 3000).until(
+            EC.visibility_of_element_located((By.XPATH, "//span[text()='Log Out']"))
+        )
         log_out_btn = browser.find_element(By.XPATH, "//span[text()='Log Out']")
         log_out_btn.click()
-    except Exception:
-        logging.exception("Unable to log out of Facebook")
+    except:
+        logger.exception("Unable to log out of Facebook")
 
-    logging.info("Logged out of Facebook")
+    reprint("Logging out of Facebook - done", overwrite=True)
 
 
-def _relist_listings(browser, listings):
-    failures = []
-    successes = []
-    for id in listings["ids"]:
-        listing = Listing(id)
-        if listing.renew(browser):
-            successes.append(listing.id)
-        else:
-            failures.append(listing.id)
+def _relist(browser, listings):
+    reprint("Relisting Facebook postings")
 
-    logging.info(
-        f"Successfully relisted Facebook listings '{successes}', "
-        f"unable to relist Facebook listings '{failures}'"
-    )
+    for title in listings["titles"]:
+        reprint(f"  Listing '{title}' - relisting...")
+
+        listing = Listing(title)
+        result = listing.relist(browser)
+
+        reprint(f"  Listing '{title}' - {result.with_color}", overwrite=True)
 
 
 def relist(browser, config):
     if _login(browser, config["credentials"]):
-        _relist_listings(browser, config["listings"])
+        _relist(browser, config["listings"])
         _logout(browser)
